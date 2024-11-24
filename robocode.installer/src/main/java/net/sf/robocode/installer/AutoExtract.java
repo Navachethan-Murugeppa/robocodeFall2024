@@ -15,9 +15,7 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.*;
 import java.net.URL;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
+import java.nio.file.*;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.JarInputStream;
@@ -435,16 +433,30 @@ public class AutoExtract implements ActionListener {
             // Fix problem with .data starting with a underscore dir by
             // renaming files containing ".data/_" into ".data"
             if (robotsDataDir.exists()) {
-                File underScoreDir = new File(robotsDataDir, "_");
-                String[] list = underScoreDir.list();
+                Path underScoreDir = robotsDataDir.toPath().resolve("_");
 
-                if (list != null) {
-                    for (String fileName : list) {
-                        File file = new File(underScoreDir, fileName);
+                try {
+                    // Check if underscore directory exists
+                    if (Files.exists(underScoreDir) && Files.isDirectory(underScoreDir)) {
+                        // Iterate over the contents of the underscore directory
+                        try (DirectoryStream<Path> stream = Files.newDirectoryStream(underScoreDir)) {
+                            for (Path file : stream) {
+                                // Safely resolve and validate the target path
+                                Path target = robotsDataDir.toPath().resolve(file.getFileName());
+                                if (!target.normalize().startsWith(robotsDataDir.toPath())) {
+                                    throw new SecurityException("Invalid file path detected: " + file);
+                                }
+                                // Move the file
+                                Files.move(file, target, StandardCopyOption.REPLACE_EXISTING);
+                            }
+                        }
 
-                        file.renameTo(new File(robotsDataDir, fileName));
+                        // Delete the underscore directory after moving its contents
+                        Files.deleteIfExists(underScoreDir);
                     }
-                    underScoreDir.delete();
+                } catch (IOException | SecurityException e) {
+                    System.err.println("Failed to process .data/_ directory: " + e.getMessage());
+                    e.printStackTrace();
                 }
             }
 
