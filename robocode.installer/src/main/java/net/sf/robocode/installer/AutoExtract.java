@@ -436,26 +436,38 @@ public class AutoExtract implements ActionListener {
                 Path underScoreDir = robotsDataDir.toPath().resolve("_");
 
                 try {
-                    // Check if underscore directory exists
-                    if (Files.exists(underScoreDir) && Files.isDirectory(underScoreDir)) {
-                        // Iterate over the contents of the underscore directory
+                    // Validate underscore directory existence
+                    if (Files.isDirectory(underScoreDir) && !Files.isSymbolicLink(underScoreDir)) {
                         try (DirectoryStream<Path> stream = Files.newDirectoryStream(underScoreDir)) {
                             for (Path file : stream) {
-                                // Safely resolve and validate the target path
-                                Path target = robotsDataDir.toPath().resolve(file.getFileName());
-                                if (!target.normalize().startsWith(robotsDataDir.toPath())) {
-                                    throw new SecurityException("Invalid file path detected: " + file);
+                                // Ensure file is not a symbolic link
+                                if (Files.isSymbolicLink(file)) {
+                                    System.err.println("Symbolic link detected and skipped: " + file);
+                                    continue;
                                 }
-                                // Move the file
-                                Files.move(file, target, StandardCopyOption.REPLACE_EXISTING);
+
+                                // Resolve the target file path
+                                Path targetPath = robotsDataDir.toPath().resolve(file.getFileName()).normalize();
+
+                                // Verify target path is within robotsDataDir
+                                if (!targetPath.startsWith(robotsDataDir.toPath().normalize())) {
+                                    throw new SecurityException("Path traversal attempt detected: " + file);
+                                }
+
+                                // Atomically move the file
+                                Files.move(file, targetPath, StandardCopyOption.REPLACE_EXISTING);
                             }
                         }
 
-                        // Delete the underscore directory after moving its contents
-                        Files.deleteIfExists(underScoreDir);
+                        // Delete the underscore directory if empty
+                        try {
+                            Files.deleteIfExists(underScoreDir);
+                        } catch (DirectoryNotEmptyException e) {
+                            System.err.println("Directory not empty: " + underScoreDir);
+                        }
                     }
                 } catch (IOException | SecurityException e) {
-                    System.err.println("Failed to process .data/_ directory: " + e.getMessage());
+                    System.err.println("Error processing .data/_ directory: " + e.getMessage());
                     e.printStackTrace();
                 }
             }
